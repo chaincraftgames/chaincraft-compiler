@@ -19,7 +19,7 @@
 //   'slot'     → not yet supported
 // ---------------------------------------------------------------------------
 
-import type { ModularGameSpec, EffectCall } from '@chaincraft/gamedef';
+import type { ModularGameSpec, EffectCall } from "@chaincraft/gamedef";
 import type {
   FlowNode,
   GameFlowNode,
@@ -29,22 +29,28 @@ import type {
   Grammar,
   FlowHooks,
   EffectRef,
-} from '@chaincraft/runtime';
-import { normalizeEffectList } from './effects.js';
+} from "@chaincraft/runtime";
+import { normalizeEffectList } from "./effects.js";
+import type { 
+  ActorSpec, 
+  TurnOrder, 
+  TurnGrammarNode, 
+  FlowNode as GamedefFlowNode 
+} from '@chaincraft/gamedef';
 
 // ---------------------------------------------------------------------------
 // Hook conversion
 // ---------------------------------------------------------------------------
 
-/** 
- * Convert a gamedef EffectCall array into runtime EffectRef[] + populate effectDefs. 
- * This function will convert inline effects into synthetic IDs and add them to the 
+/**
+ * Convert a gamedef EffectCall array into runtime EffectRef[] + populate effectDefs.
+ * This function will convert inline effects into synthetic IDs and add them to the
  * effectDefs accumulator.
  */
 function assembleHooks(
   calls: EffectCall[] | undefined,
   nodeId: string,
-  hookName: 'onEnter' | 'onComplete',
+  hookName: "onEnter" | "onComplete",
   effectDefs: Record<string, Record<string, unknown>>,
 ): EffectRef[] | undefined {
   if (!calls?.length) return undefined;
@@ -56,13 +62,21 @@ function assembleHooks(
  * Convert a gamedef FlowNode hooks object into runtime FlowHooks + populate effectDefs.
  */
 function assembleFlowHooks(
-  hooks: { onEnter?: EffectCall[]; onComplete?: EffectCall[] } | undefined,
+  // node.hooks is typed as _FlowHooks (unknown arrays) in the gamedef FlowNode
+  // type alias — a workaround for a Zod circular-type constraint. The runtime
+  // values are always EffectCall[], so the cast here is safe.
+  hooks: { onEnter?: unknown; onComplete?: unknown } | undefined,
   nodeId: string,
   effectDefs: Record<string, Record<string, unknown>>,
 ): FlowHooks | undefined {
   if (!hooks) return undefined;
-  const onEnter = assembleHooks(hooks.onEnter, nodeId, 'onEnter', effectDefs);
-  const onComplete = assembleHooks(hooks.onComplete, nodeId, 'onComplete', effectDefs);
+  const onEnter = assembleHooks(hooks.onEnter as EffectCall[] | undefined, nodeId, "onEnter", effectDefs);
+  const onComplete = assembleHooks(
+    hooks.onComplete as EffectCall[] | undefined,
+    nodeId,
+    "onComplete",
+    effectDefs,
+  );
   if (!onEnter && !onComplete) return undefined;
   return {
     ...(onEnter && { onEnter }),
@@ -74,34 +88,34 @@ function assembleFlowHooks(
 // TurnOrdering mapping
 // ---------------------------------------------------------------------------
 
-type GamedefActor =
-  | 'active-player'
-  | 'all-players'
-  | { roles: string[] };
+function assembleTurnOrdering(
+  actor: ActorSpec,
+  turnOrder: TurnOrder | undefined,
+): TurnOrdering {
+  const roleIds =
+    typeof actor === "object" && "roles" in actor ? actor.roles : undefined;
 
-type GamedefTurnOrder =
-  | { kind: 'seat'; direction: 'clockwise' | 'counter-clockwise'; startingPlayer?: unknown }
-  | { kind: 'ranked'; by: unknown; order: 'ascending' | 'descending' }
-  | { kind: 'explicit'; players: string[] };
-
-function assembleTurnOrdering(actor: GamedefActor, turnOrder: GamedefTurnOrder | undefined): TurnOrdering {
-  const roleIds = typeof actor === 'object' && 'roles' in actor ? actor.roles : undefined;
-
-  if (!turnOrder || turnOrder.kind === 'seat') {
+  if (!turnOrder || turnOrder.kind === "seat") {
     return {
-      kind: 'round-robin',
+      kind: "round-robin",
       ...(roleIds && { roleIds }),
     };
   }
 
-  if (turnOrder.kind === 'ranked') {
-    const by = turnOrder.by as { playerProperty?: string; playerInventory?: string };
+  if (turnOrder.kind === "ranked") {
+    const by = turnOrder.by as {
+      playerProperty?: string;
+      playerInventory?: string;
+    };
     const sortBy: { playerProperty: string } | { playerInventory: string } =
       by.playerProperty
         ? { playerProperty: by.playerProperty }
-        : { playerInventory: (by as { playerInventory: string }).playerInventory };
+        : {
+            playerInventory: (by as { playerInventory: string })
+              .playerInventory,
+          };
     return {
-      kind: 'round-robin',
+      kind: "round-robin",
       sort: { by: sortBy, order: turnOrder.order },
       ...(roleIds && { roleIds }),
     };
@@ -116,37 +130,33 @@ function assembleTurnOrdering(actor: GamedefActor, turnOrder: GamedefTurnOrder |
 // Grammar mapping
 // ---------------------------------------------------------------------------
 
-type GamedefGrammarNode =
-  | { kind: 'action'; ref: string }
-  | { kind: 'slot'; inventory: string; slot: string; ofType?: string; select: unknown }
-  | { kind: 'sequence'; steps: GamedefGrammarNode[] }
-  | { kind: 'choice'; options: GamedefGrammarNode[]; pick?: number; passable?: boolean }
-  | { kind: 'repeat'; body: GamedefGrammarNode; count: number | { min?: number; max?: number } | 'until-pass' };
 
-function assembleGrammar(node: GamedefGrammarNode): Grammar {
-  if (node.kind === 'action') {
-    return { kind: 'action', ref: node.ref };
+function assembleGrammar(node: TurnGrammarNode): Grammar {
+  if (node.kind === "action") {
+    return { kind: "action", ref: node.ref };
   }
 
-  if (node.kind === 'slot') {
-    throw new Error(`flow assembler: grammar kind 'slot' is not yet supported.`);
+  if (node.kind === "slot") {
+    throw new Error(
+      `flow assembler: grammar kind 'slot' is not yet supported.`,
+    );
   }
 
-  if (node.kind === 'sequence') {
+  if (node.kind === "sequence") {
     const actions = node.steps.map((step) => {
-      if (step.kind !== 'action') {
+      if (step.kind !== "action") {
         throw new Error(
           `flow assembler: sequence steps must all be 'action' nodes (got '${step.kind}').`,
         );
       }
       return step.ref;
     });
-    return { kind: 'sequence', actions };
+    return { kind: "sequence", actions };
   }
 
-  if (node.kind === 'choice') {
+  if (node.kind === "choice") {
     const actions = node.options.map((opt) => {
-      if (opt.kind !== 'action') {
+      if (opt.kind !== "action") {
         throw new Error(
           `flow assembler: choice options must all be 'action' nodes (got '${opt.kind}').`,
         );
@@ -154,7 +164,7 @@ function assembleGrammar(node: GamedefGrammarNode): Grammar {
       return opt.ref;
     });
     return {
-      kind: 'choice',
+      kind: "choice",
       actions,
       ...(node.passable != null && { passable: node.passable }),
     };
@@ -162,7 +172,7 @@ function assembleGrammar(node: GamedefGrammarNode): Grammar {
 
   // repeat
   return {
-    kind: 'repeat',
+    kind: "repeat",
     body: assembleGrammar(node.body),
     count: node.count,
   };
@@ -172,52 +182,40 @@ function assembleGrammar(node: GamedefGrammarNode): Grammar {
 // FlowNode recursive assembly
 // ---------------------------------------------------------------------------
 
-type GamedefFlowNode =
-  | {
-      kind: 'loop';
-      id?: string;
-      label?: string;
-      count?: number;
-      endCondition?: unknown;
-      finalRound?: boolean;
-      writeIterationTo?: string;
-      children: GamedefFlowNode[];
-      hooks?: { onEnter?: EffectCall[]; onComplete?: EffectCall[] };
-    }
-  | {
-      kind: 'turn';
-      id?: string;
-      label?: string;
-      actor: GamedefActor;
-      turnOrder?: GamedefTurnOrder;
-      grammar: GamedefGrammarNode;
-      hooks?: { onEnter?: EffectCall[]; onComplete?: EffectCall[] };
-    };
-
 function assembleFlowNode(
   node: GamedefFlowNode,
   effectDefs: Record<string, Record<string, unknown>>,
 ): FlowNode {
   const nodeId = node.id ?? node.kind;
 
-  if (node.kind === 'loop') {
+  if (node.kind === "loop") {
     const result: LoopFlowNode = {
-      kind: 'loop',
+      kind: "loop",
       id: nodeId,
       label: node.label ?? nodeId,
-      children: node.children.map((child) => assembleFlowNode(child, effectDefs)),
+      children: node.children.map((child) =>
+        assembleFlowNode(child, effectDefs),
+      ),
       ...(node.count != null && { count: node.count }),
       ...(node.finalRound != null && { finalRound: node.finalRound }),
-      ...(node.writeIterationTo != null && { writeIterationTo: node.writeIterationTo }),
+      ...(node.writeIterationTo != null && {
+        writeIterationTo: node.writeIterationTo,
+      }),
     };
     const hooks = assembleFlowHooks(node.hooks, nodeId, effectDefs);
     if (hooks) result.hooks = hooks;
     return result;
   }
 
+  if (node.kind === "simultaneous") {
+    throw new Error(
+      `flow assembler: FlowNode kind 'simultaneous' is not yet supported. Use 'loop' or 'turn'.`,
+    );
+  }
+
   // turn
   const result: TurnFlowNode = {
-    kind: 'turn',
+    kind: "turn",
     id: nodeId,
     label: node.label ?? nodeId,
     ordering: assembleTurnOrdering(node.actor, node.turnOrder),
@@ -252,7 +250,7 @@ export function assembleFlow(
   }
 
   const root = spec.flow.root as {
-    kind: 'game';
+    kind: "game";
     label?: string;
     hooks?: { onEnter?: EffectCall[]; onComplete?: EffectCall[] };
     children: GamedefFlowNode[];
@@ -260,7 +258,7 @@ export function assembleFlow(
   };
 
   const gameNode: GameFlowNode = {
-    kind: 'game',
+    kind: "game",
     id: specId,
     children: root.children.map((child) => assembleFlowNode(child, effectDefs)),
   };

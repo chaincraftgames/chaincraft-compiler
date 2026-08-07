@@ -9,20 +9,13 @@
 //   chaincraft:dominant-gamepiece — comparison rule only (Phase 6 adds matrix/dominant)
 // ---------------------------------------------------------------------------
 
+// TODO this is a temporary shim.  Mechanics assemblers should be registered 
+// and invoked during the mechanics phase of the compiler, rather than being 
+// hard-coded here.
 import type { GameMechanic } from '@chaincraft/gamedef';
-import type { EffectRegistration, ActionDef } from '@chaincraft/runtime';
 import { createDominantGamepieceResolver } from '@chaincraft/runtime';
 import type { DominantGamepieceMechanic } from '@chaincraft/runtime';
-import type { GameConfig } from './types.js';
-
-/** The mutable intermediate artifact passed between assembler phases. */
-export interface ModuleBuilder {
-  specId: string;
-  config: GameConfig;
-  effectDefs: Record<string, Record<string, unknown>>;
-  effects: Record<string, EffectRegistration>;
-  actions: Record<string, ActionDef>;
-}
+import type { ModuleBuilder } from './types.js';
 
 /**
  * Apply all mechanic passes to the in-progress module builder.

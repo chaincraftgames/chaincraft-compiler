@@ -2,8 +2,9 @@
 // Effects assembler
 //
 // Produces:
-//   1. effectExecutors: Record<string, EffectRegistration> — one entry per
-//      distinct effect kind used in the spec, mapped to the runtime executor.
+//   1. buildExecutorRegistry: Record<string, EffectRegistration> — one entry
+//      per distinct effect kind found in effectDefs, mapped to the runtime
+//      executor.
 //   2. effectDefs: Record<string, Record<string, unknown>> — every named
 //      effect compiled and stored by ID.
 //   3. walkEffectBody: shared walker that compiles a single effect body
@@ -37,24 +38,44 @@ import {
   createCustomExecutor,
 } from "@chaincraft/runtime";
 
-/**
- * Map of effect kind to executor factory function.
- */
-const EXECUTOR_MAP: Record<string, (() => EffectRegistration) | undefined> = {
-  shuffle: () => ({ kind: "effect-executor", execute: executeShuffle }),
-  move: () => ({ kind: "effect-executor", execute: executeMove }),
-  distribute: () => ({ kind: "effect-executor", execute: executeDistribute }),
-  message: () => ({ kind: "effect-executor", execute: executeMessage }),
-  "set-state": () => ({ kind: "effect-executor", execute: executeSetState }),
-  update: () => ({ kind: "effect-executor", execute: executeUpdate }),
-  flip: () => ({ kind: "effect-executor", execute: executeFlip }),
-  roll: () => ({ kind: "effect-executor", execute: executeRoll }),
-  "set-random": () => ({ kind: "effect-executor", execute: executeSetRandom }),
-  orient: () => ({ kind: "effect-executor", execute: executeOrient }),
-  reveal: () => ({ kind: "effect-executor", execute: executeReveal }),
-  hide: () => ({ kind: "effect-executor", execute: executeHide }),
-  custom: () => createCustomExecutor({}),
+/** All built-in effect executors, keyed by effect kind string. */
+const BUILT_IN_EXECUTORS: Record<string, EffectRegistration> = {
+  'shuffle':    { kind: 'effect-executor', execute: executeShuffle },
+  'move':       { kind: 'effect-executor', execute: executeMove },
+  'distribute': { kind: 'effect-executor', execute: executeDistribute },
+  'message':    { kind: 'effect-executor', execute: executeMessage },
+  'set-state':  { kind: 'effect-executor', execute: executeSetState },
+  'update':     { kind: 'effect-executor', execute: executeUpdate },
+  'flip':       { kind: 'effect-executor', execute: executeFlip },
+  'roll':       { kind: 'effect-executor', execute: executeRoll },
+  'set-random': { kind: 'effect-executor', execute: executeSetRandom },
+  'orient':     { kind: 'effect-executor', execute: executeOrient },
+  'reveal':     { kind: 'effect-executor', execute: executeReveal },
+  'hide':       { kind: 'effect-executor', execute: executeHide },
+  'custom':     createCustomExecutor({}),
 };
+
+/**
+ * Build the executor registry from the kinds actually used in effectDefs.
+ * Called after all assembler phases have contributed to effectDefs, so every
+ * kind — named, action-inline, and flow-inline — is covered.
+ * Mechanic-provided kinds (chaincraft:*) are skipped; mechanic passes
+ * register their own executors.
+ */
+export function buildExecutorRegistry(
+  effectDefs: Record<string, Record<string, unknown>>,
+): Record<string, EffectRegistration> {
+  const registry: Record<string, EffectRegistration> = {};
+  for (const def of Object.values(effectDefs)) {
+    const kind = def.kind as string | undefined;
+    if (!kind) continue;
+    if (kind.startsWith('chaincraft:')) continue; // handled by mechanic passes
+    if (!registry[kind] && BUILT_IN_EXECUTORS[kind]) {
+      registry[kind] = BUILT_IN_EXECUTORS[kind];
+    }
+  }
+  return registry;
+}
 
 /**
  * Walk a single effect body, compiling value expressions where needed.
@@ -124,47 +145,6 @@ function walkValue(value: unknown): unknown {
     result[k] = walkValue(v);
   }
   return result;
-}
-
-/**
- * Scan all effect kinds used in the spec and build the executor registry.
- * Scans both the effects module and action inline effects.
- */
-export function assembleEffectExecutors(
-  spec: ModularGameSpec,
-): Record<string, EffectRegistration> {
-  const kinds = new Set<string>();
-
-  // Scan named effects
-  if (spec.effects?.effects) {
-    for (const effect of spec.effects.effects) {
-      kinds.add(effect.kind);
-    }
-  }
-
-  // Scan action inline effects
-  if (spec.actions?.actions) {
-    for (const action of spec.actions.actions) {
-      for (const call of action.effects) {
-        if ("kind" in call) {
-          kinds.add(call.kind as string);
-        }
-      }
-    }
-  }
-
-  // Build registry
-  const registry: Record<string, EffectRegistration> = {};
-  for (const kind of kinds) {
-    const factory = EXECUTOR_MAP[kind];
-    if (factory) {
-      registry[kind] = factory();
-    }
-    // Unknown kinds are silently skipped — the validator (Phase 7) will
-    // catch references to unsupported kinds before we get here.
-  }
-
-  return registry;
 }
 
 // ---------------------------------------------------------------------------

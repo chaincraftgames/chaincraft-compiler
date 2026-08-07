@@ -21,7 +21,7 @@ import { validate } from '@chaincraft/gamedef/validator';
 import { GameController } from '@chaincraft/runtime';
 import {
   assembleConfig, assembleInitialState, assembleSession,
-  assembleEffectExecutors, assembleEffectDefs, assembleActions,
+  buildExecutorRegistry, assembleEffectDefs, assembleActions,
   assembleFlow, assembleModule,
   UNASSIGNED_INVENTORY_ID,
 } from '../index.js';
@@ -184,14 +184,16 @@ describe('assembleSession — High Card', () => {
 // Phase 3 — Effects + Actions assembler
 // ---------------------------------------------------------------------------
 
-describe('assembleEffectExecutors — High Card', () => {
+describe('buildExecutorRegistry — High Card', () => {
   const spec = loadHighCardSpec();
-  const executors = assembleEffectExecutors(spec);
+  // Build effectDefs from all assembler phases so flow-inline kinds are included
+  const effectDefs = assembleEffectDefs(spec);
+  const specId = 'high-card';
+  assembleActions(spec, effectDefs);
+  assembleFlow(spec, specId, effectDefs);
+  const executors = buildExecutorRegistry(effectDefs);
 
-  it('registers an executor for each distinct effect kind in the spec', () => {
-    // High-card YAML uses: move, shuffle, distribute, message, set-state, custom
-    // (custom comes from the mechanics module referencing custom effects)
-    // The action uses: move (inline)
+  it('registers an executor for each distinct effect kind in effectDefs', () => {
     // Named effects use: move, shuffle, distribute, message, set-state
     const expectedKinds = ['move', 'shuffle', 'distribute', 'message', 'set-state'];
     for (const kind of expectedKinds) {

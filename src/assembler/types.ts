@@ -24,7 +24,18 @@ export type {
   GameConfig,
   RngProvider,
   GameSession,
+  EffectRegistration,
+  ActionDef,
 } from '@chaincraft/runtime';
 
 /** Reserved inventory ID: every catalog piece starts here before setup effects run. */
 export const UNASSIGNED_INVENTORY_ID = 'game:unassigned';
+
+/** The mutable intermediate artifact passed between assembler phases. */
+export interface ModuleBuilder {
+  specId: string;
+  config: GameConfig;
+  effectDefs: Record<string, Record<string, unknown>>;
+  effects: Record<string, EffectRegistration>;
+  actions: Record<string, ActionDef>;
+}

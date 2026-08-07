@@ -14,68 +14,13 @@
 
 import type { ModularGameSpec } from '@chaincraft/gamedef';
 import type { CompiledGameModule, EffectRegistration, ActionDef, FlowNode } from '@chaincraft/runtime';
-import {
-  executeDistribute,
-  executeFlip,
-  executeHide,
-  executeMessage,
-  executeMove,
-  executeOrient,
-  executeReveal,
-  executeRoll,
-  executeSetRandom,
-  executeSetState,
-  executeShuffle,
-  executeUpdate,
-  createCustomExecutor,
-} from '@chaincraft/runtime';
 import { assembleConfig } from './config.js';
-import { assembleEffectDefs } from './effects.js';
+import { assembleEffectDefs, buildExecutorRegistry } from './effects.js';
 import { assembleActions } from './actions.js';
 import { assembleFlow } from './flow.js';
 import { applyMechanics } from './mechanics.js';
 import { assembleSession } from './session.js';
 import type { GameConfig } from './types.js';
-
-// ---------------------------------------------------------------------------
-// Built-in executor registry (keyed by effect kind string)
-// ---------------------------------------------------------------------------
-
-const BUILT_IN_EXECUTORS: Record<string, EffectRegistration> = {
-  'shuffle':    { kind: 'effect-executor', execute: executeShuffle },
-  'move':       { kind: 'effect-executor', execute: executeMove },
-  'distribute': { kind: 'effect-executor', execute: executeDistribute },
-  'message':    { kind: 'effect-executor', execute: executeMessage },
-  'set-state':  { kind: 'effect-executor', execute: executeSetState },
-  'update':     { kind: 'effect-executor', execute: executeUpdate },
-  'flip':       { kind: 'effect-executor', execute: executeFlip },
-  'roll':       { kind: 'effect-executor', execute: executeRoll },
-  'set-random': { kind: 'effect-executor', execute: executeSetRandom },
-  'orient':     { kind: 'effect-executor', execute: executeOrient },
-  'reveal':     { kind: 'effect-executor', execute: executeReveal },
-  'hide':       { kind: 'effect-executor', execute: executeHide },
-  'custom':     createCustomExecutor({}),
-};
-
-/**
- * Build the executor registry from the kinds actually used in effectDefs.
- * Mechanic-provided kinds (chaincraft:*) are skipped here; mechanic passes
- * register their own executors.
- */
-function buildExecutorRegistry(
-  effectDefs: Record<string, Record<string, unknown>>,
-): Record<string, EffectRegistration> {
-  const registry: Record<string, EffectRegistration> = {};
-  for (const def of Object.values(effectDefs)) {
-    const kind = def.kind as string | undefined;
-    if (!kind) continue;
-    if (kind.startsWith('chaincraft:')) continue; // handled by mechanic passes
-    if (!registry[kind] && BUILT_IN_EXECUTORS[kind]) {
-      registry[kind] = BUILT_IN_EXECUTORS[kind];
-    }
-  }
-  return registry;
-}
 
 // ---------------------------------------------------------------------------
 // Link / validate
