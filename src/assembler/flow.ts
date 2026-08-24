@@ -19,7 +19,11 @@
 //   'slot'     → not yet supported
 // ---------------------------------------------------------------------------
 
-import type { ModularGameSpec, EffectCall } from "@chaincraft/gamedef";
+import type {
+  ModularGameSpec,
+  EffectCall,
+  WinCondition,
+} from "@chaincraft/gamedef";
 import type {
   FlowNode,
   GameFlowNode,
@@ -29,14 +33,17 @@ import type {
   Grammar,
   FlowHooks,
   EffectRef,
+  WinConditionDef,
 } from "@chaincraft/runtime";
 import { normalizeEffectList } from "./effects.js";
-import type { 
-  ActorSpec, 
-  TurnOrder, 
-  TurnGrammarNode, 
-  FlowNode as GamedefFlowNode 
-} from '@chaincraft/gamedef';
+import { sessionToEvalContext } from "../expressions/eval-bridge.js";
+import { compileExpression, compilePredicate } from "../expressions/index.js";
+import type {
+  ActorSpec,
+  TurnOrder,
+  TurnGrammarNode,
+  FlowNode as GamedefFlowNode,
+} from "@chaincraft/gamedef";
 
 // ---------------------------------------------------------------------------
 // Hook conversion
@@ -70,7 +77,12 @@ function assembleFlowHooks(
   effectDefs: Record<string, Record<string, unknown>>,
 ): FlowHooks | undefined {
   if (!hooks) return undefined;
-  const onEnter = assembleHooks(hooks.onEnter as EffectCall[] | undefined, nodeId, "onEnter", effectDefs);
+  const onEnter = assembleHooks(
+    hooks.onEnter as EffectCall[] | undefined,
+    nodeId,
+    "onEnter",
+    effectDefs,
+  );
   const onComplete = assembleHooks(
     hooks.onComplete as EffectCall[] | undefined,
     nodeId,
@@ -129,7 +141,6 @@ function assembleTurnOrdering(
 // ---------------------------------------------------------------------------
 // Grammar mapping
 // ---------------------------------------------------------------------------
-
 
 function assembleGrammar(node: TurnGrammarNode): Grammar {
   if (node.kind === "action") {
@@ -227,6 +238,70 @@ function assembleFlowNode(
 }
 
 // ---------------------------------------------------------------------------
+// Win conditions
+// ---------------------------------------------------------------------------
+
+/** Assemble win conditions. */
+function assembleWinConditions(
+  specConditions: WinCondition[],
+  specId: string,
+  effectDefs: Record<string, Record<string, unknown>>,
+): WinConditionDef[] {
+  return specConditions.map((wc, i) => {
+    const prefix = `${specId}.winConditions_${i}`;
+
+    const onVictory = wc.onVictory?.length
+      ? normalizeEffectList(wc.onVictory, `${prefix}.onVictory`, effectDefs)
+      : undefined;
+
+    switch (wc.rule) {
+      case "ranking": {
+        const propertyPath = wc.property;
+        // TODO(Phase 6.5): replace with compileExpression(propertyPath) once expressions return numeric values.
+        const match = propertyPath.match(/^player\.property\.(.+)$/);
+        if (!match) {
+          throw new Error(
+            `flow assembler: winCondition[${i}] ranking property must be 'player.property.<key>' (got '${propertyPath}')`,
+          );
+        }
+        const key = match[1];
+        return {
+          rule: "ranking" as const,
+          value: (
+            _session: import("@chaincraft/runtime").GameSession,
+            playerId: string,
+          ) => {
+            return Number(
+              _session.state.players[playerId]?.properties[key] ?? 0,
+            );
+          },
+          order: wc.order ?? "highest",
+          tiebreak: wc.tiebreak ?? "all-win",
+          ...(onVictory && { onVictory }),
+        };
+      }
+      case "condition": {
+        const predFn = compilePredicate(wc.condition);
+        return {
+          rule: "condition" as const,
+          condition: (
+            session: import("@chaincraft/runtime").GameSession,
+            actorId?: string,
+          ) => {
+            return predFn(sessionToEvalContext(session, actorId));
+          },
+          ...(onVictory && { onVictory }),
+        };
+      }
+      case "role-condition":
+        throw new Error(
+          `flow assembler: winCondition[${i}] rule 'role-condition' is not yet supported.`,
+        );
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -254,7 +329,7 @@ export function assembleFlow(
     label?: string;
     hooks?: { onEnter?: EffectCall[]; onComplete?: EffectCall[] };
     children: GamedefFlowNode[];
-    winConditions?: unknown[];
+    winConditions?: WinCondition[];
   };
 
   const gameNode: GameFlowNode = {
@@ -266,8 +341,13 @@ export function assembleFlow(
   const hooks = assembleFlowHooks(root.hooks, specId, effectDefs);
   if (hooks) gameNode.hooks = hooks;
 
-  // winConditions: deferred to Phase 6. They are present in the spec but
-  // the runtime has no native ranking mechanic yet; skip silently.
+  if (root.winConditions?.length) {
+    gameNode.winConditions = assembleWinConditions(
+      root.winConditions,
+      specId,
+      effectDefs,
+    );
+  }
 
   return gameNode;
 }
