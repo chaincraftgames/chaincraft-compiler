@@ -55,25 +55,29 @@ describe('assembleConfig — High Card', () => {
     expect(config.inventories.deck).toEqual({
       structure: 'stack',
       scope: 'game',
-      visibility: 'count-only',
+      visibility: 'never',
+      countVisibility: 'always',
       accepts: ['card'],
     });
     expect(config.inventories.hand).toEqual({
       structure: 'none',
       scope: 'player',
       visibility: 'owner',
+      countVisibility: 'always',
       accepts: ['card'],
     });
     expect(config.inventories.table).toEqual({
       structure: 'none',
       scope: 'game',
       visibility: 'always',
+      countVisibility: 'always',
       accepts: ['card'],
     });
     expect(config.inventories.discard).toEqual({
       structure: 'none',
       scope: 'game',
       visibility: 'always',
+      countVisibility: 'always',
       accepts: ['card'],
     });
   });

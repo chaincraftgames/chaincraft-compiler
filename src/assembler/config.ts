@@ -90,6 +90,10 @@ function assembleGamepieceTypes(spec: ModularGameSpec): Record<string, Gamepiece
   );
 }
 
+function defaultCountVisibility(visibility: string): "always" | "owner" | "never" {
+  return visibility === 'never' ? 'never' : 'always';
+}
+
 function assembleInventories(spec: ModularGameSpec): Record<string, InventoryConfig> {
   const types = spec.inventories?.types ?? [];
   return Object.fromEntries(
@@ -98,6 +102,7 @@ function assembleInventories(spec: ModularGameSpec): Record<string, InventoryCon
         structure: inv.structure,
         scope: inv.scope.kind,
         visibility: inv.visibility,
+        countVisibility: inv.countVisibility ?? defaultCountVisibility(inv.visibility),
         accepts: inv.accepts,
         ...(inv.capacity ? { capacity: inv.capacity } : {}),
         ...(inv.gridDimensions ? { gridDimensions: inv.gridDimensions } : {}),
