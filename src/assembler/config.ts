@@ -16,6 +16,7 @@ import type {
   PropertyConfig,
   RefType,
 } from './types.js';
+import { GamepiecePropertyConfig } from "node_modules/@chaincraft/runtime/dist/types.js";
 
 type StateProperty = z.infer<typeof StatePropertySchema>;
 
@@ -68,8 +69,9 @@ function assembleGamepieceTypes(spec: ModularGameSpec): Record<string, Gamepiece
           p.id,
           {
             mutable: p.mutable,
+            ...(p.visibility ? { visibility: p.visibility } : {}),
             ...mapPropertyType(p.type),
-          } satisfies PropertyConfig,
+          } satisfies GamepiecePropertyConfig,
         ]),
       );
       // hasFaceState/exhaustible/orientationCount are Zod-defaulted (false/false/1)
