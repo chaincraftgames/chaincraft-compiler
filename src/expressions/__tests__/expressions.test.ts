@@ -341,6 +341,37 @@ describe('error reporting', () => {
 });
 
 // ---------------------------------------------------------------------------
+// source / target piece paths
+// ---------------------------------------------------------------------------
+
+describe('source and target piece paths', () => {
+  const ctx = makeCtx({
+    sourcePieceId: 'card-1',
+    targetPieceId: 'card-5',
+  });
+
+  it('resolves source.property.X', () => {
+    expect(compileExpression('source.property.value')(ctx)).toBe(1);
+  });
+
+  it('resolves target.property.X', () => {
+    expect(compileExpression('target.property.value')(ctx)).toBe(5);
+  });
+
+  it('source - target arithmetic', () => {
+    expect(compileExpression('source.property.value - target.property.value')(ctx)).toBe(-4);
+  });
+
+  it('throws when sourcePieceId is absent', () => {
+    expect(() => compileExpression('source.property.value')(makeCtx())).toThrow('sourcePieceId');
+  });
+
+  it('throws when targetPieceId is absent', () => {
+    expect(() => compileExpression('target.property.value')(makeCtx())).toThrow('targetPieceId');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AST inspection (parseExpression)
 // ---------------------------------------------------------------------------
 

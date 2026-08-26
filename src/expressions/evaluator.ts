@@ -11,13 +11,21 @@
 //   actor.inventory.X     → ctx.players[ctx.actorId].inventories[X]
 //   player.property.X     → ctx.players[boundPlayerId].properties[X]
 //   player.inventory.X    → ctx.players[boundPlayerId].inventories[X]
+//   source.property.X     → ctx.gamepieces[ctx.sourcePieceId].properties[X]
+//   target.property.X     → ctx.gamepieces[ctx.targetPieceId].properties[X]
 //
 // The `player` root is only valid inside all()/any() quantifiers which
 // bind boundPlayerId for each iteration.
 // ---------------------------------------------------------------------------
 
-import type { Expr, EvalContext, InventoryLike, ArithOp, CompareOp } from './types.js';
-import { ExpressionError } from './types.js';
+import type {
+  Expr,
+  EvalContext,
+  InventoryLike,
+  ArithOp,
+  CompareOp,
+} from "./types.js";
+import { ExpressionError } from "./types.js";
 
 /** Internal context threaded through evaluation, extends EvalContext with quantifier binding. */
 interface RuntimeCtx extends EvalContext {
@@ -52,19 +60,19 @@ type InternalFn = (ctx: RuntimeCtx) => unknown;
 
 function compile(node: Expr): InternalFn {
   switch (node.kind) {
-    case 'literal':
+    case "literal":
       return compileLiteral(node.value);
-    case 'path':
+    case "path":
       return compilePath(node.segments);
-    case 'compare':
+    case "compare":
       return compileCompare(node.op, node.left, node.right);
-    case 'arithmetic':
+    case "arithmetic":
       return compileArithmetic(node.op, node.left, node.right);
-    case 'logical':
+    case "logical":
       return compileLogical(node.op, node.left, node.right);
-    case 'not':
+    case "not":
       return compileNot(node.operand);
-    case 'call':
+    case "call":
       return compileCall(node.fn, node.args);
   }
 }
@@ -92,38 +100,55 @@ interface RootResolution {
   skip: number;
 }
 
-function resolvePlayerPaths(player: { properties: Record<string, unknown>; inventories: Record<string, unknown> }, label: string, rest: string[]): RootResolution {
+function resolvePlayerPaths(
+  player: {
+    properties: Record<string, unknown>;
+    inventories: Record<string, unknown>;
+  },
+  label: string,
+  rest: string[],
+): RootResolution {
   const kind = rest[0];
-  if (kind === 'property') return { base: player.properties, skip: 1 };
-  if (kind === 'inventory') return { base: player.inventories, skip: 1 };
+  if (kind === "property") return { base: player.properties, skip: 1 };
+  if (kind === "inventory") return { base: player.inventories, skip: 1 };
   throw new ExpressionError(
     `Unknown ${label} sub-path '${kind}'; expected 'property' or 'inventory'`,
     0,
   );
 }
 
-function resolveRoot(ctx: RuntimeCtx, root: string, rest: string[]): RootResolution {
+function resolveRoot(
+  ctx: RuntimeCtx,
+  root: string,
+  rest: string[],
+): RootResolution {
   switch (root) {
-    case 'game': {
+    case "game": {
       const kind = rest[0];
-      if (kind === 'property') return { base: ctx.gameProperties, skip: 1 };
-      if (kind === 'inventory') return { base: ctx.gameInventories, skip: 1 };
+      if (kind === "property") return { base: ctx.gameProperties, skip: 1 };
+      if (kind === "inventory") return { base: ctx.gameInventories, skip: 1 };
       throw new ExpressionError(
         `Unknown game sub-path '${kind}'; expected 'property' or 'inventory'`,
         0,
       );
     }
-    case 'actor': {
+    case "actor": {
       if (!ctx.actorId) {
-        throw new ExpressionError('Cannot resolve "actor" — no actorId in context', 0);
+        throw new ExpressionError(
+          'Cannot resolve "actor" — no actorId in context',
+          0,
+        );
       }
       const player = ctx.players[ctx.actorId];
       if (!player) {
-        throw new ExpressionError(`Actor '${ctx.actorId}' not found in players`, 0);
+        throw new ExpressionError(
+          `Actor '${ctx.actorId}' not found in players`,
+          0,
+        );
       }
-      return resolvePlayerPaths(player, 'actor', rest);
+      return resolvePlayerPaths(player, "actor", rest);
     }
-    case 'player': {
+    case "player": {
       const pid = ctx.boundPlayerId;
       if (!pid) {
         throw new ExpressionError(
@@ -135,17 +160,58 @@ function resolveRoot(ctx: RuntimeCtx, root: string, rest: string[]): RootResolut
       if (!player) {
         throw new ExpressionError(`Player '${pid}' not found in players`, 0);
       }
-      return resolvePlayerPaths(player, 'player', rest);
+      return resolvePlayerPaths(player, "player", rest);
     }
-    case 'param': {
+    case "param": {
       if (!ctx.params) {
-        throw new ExpressionError('Cannot resolve "param" — no params in context', 0);
+        throw new ExpressionError(
+          'Cannot resolve "param" — no params in context',
+          0,
+        );
       }
       return { base: ctx.params, skip: 0 };
     }
+    case "source": {
+      if (!ctx.sourcePieceId)
+        throw new ExpressionError(
+          '"source" requires sourcePieceId in context',
+          0,
+        );
+      const sourcePiece = ctx.gamepieces[ctx.sourcePieceId];
+      if (!sourcePiece)
+        throw new ExpressionError(
+          `Source piece '${ctx.sourcePieceId}' not found`,
+          0,
+        );
+      if (rest[0] !== "property")
+        throw new ExpressionError(
+          `Unknown source sub-path '${rest[0]}'; expected 'property'`,
+          0,
+        );
+      return { base: sourcePiece.properties, skip: 1 };
+    }
+    case "target": {
+      if (!ctx.targetPieceId)
+        throw new ExpressionError(
+          '"target" requires targetPieceId in context',
+          0,
+        );
+      const targetPiece = ctx.gamepieces[ctx.targetPieceId];
+      if (!targetPiece)
+        throw new ExpressionError(
+          `Target piece '${ctx.targetPieceId}' not found`,
+          0,
+        );
+      if (rest[0] !== "property")
+        throw new ExpressionError(
+          `Unknown target sub-path '${rest[0]}'; expected 'property'`,
+          0,
+        );
+      return { base: targetPiece.properties, skip: 1 };
+    }
     default:
       throw new ExpressionError(
-        `Unknown path root '${root}'; expected 'game', 'actor', 'player', or 'param'`,
+        `Unknown path root '${root}'; expected 'game', 'actor', 'player', 'param', 'source', or 'target'`,
         0,
       );
   }
@@ -154,7 +220,7 @@ function resolveRoot(ctx: RuntimeCtx, root: string, rest: string[]): RootResolut
 function walkPath(base: unknown, segments: string[], skip: number): unknown {
   let current = base;
   for (let i = skip; i < segments.length; i++) {
-    if (current == null || typeof current !== 'object') return undefined;
+    if (current == null || typeof current !== "object") return undefined;
     current = (current as Record<string, unknown>)[segments[i]];
   }
   return current;
@@ -174,12 +240,18 @@ function compileCompare(op: CompareOp, left: Expr, right: Expr): InternalFn {
 
 function compareValues(op: CompareOp, l: unknown, r: unknown): boolean {
   switch (op) {
-    case '==': return l === r;
-    case '!=': return l !== r;
-    case '>=': return Number(l) >= Number(r);
-    case '<=': return Number(l) <= Number(r);
-    case '>':  return Number(l) > Number(r);
-    case '<':  return Number(l) < Number(r);
+    case "==":
+      return l === r;
+    case "!=":
+      return l !== r;
+    case ">=":
+      return Number(l) >= Number(r);
+    case "<=":
+      return Number(l) <= Number(r);
+    case ">":
+      return Number(l) > Number(r);
+    case "<":
+      return Number(l) < Number(r);
   }
 }
 
@@ -190,18 +262,22 @@ function compileArithmetic(op: ArithOp, left: Expr, right: Expr): InternalFn {
     const l = Number(lFn(ctx));
     const r = Number(rFn(ctx));
     switch (op) {
-      case '+': return l + r;
-      case '-': return l - r;
-      case '*': return l * r;
-      case '/': return r === 0 ? 0 : l / r;
+      case "+":
+        return l + r;
+      case "-":
+        return l - r;
+      case "*":
+        return l * r;
+      case "/":
+        return r === 0 ? 0 : l / r;
     }
   };
 }
 
-function compileLogical(op: 'and' | 'or', left: Expr, right: Expr): InternalFn {
+function compileLogical(op: "and" | "or", left: Expr, right: Expr): InternalFn {
   const lFn = compile(left);
   const rFn = compile(right);
-  if (op === 'and') {
+  if (op === "and") {
     return (ctx) => Boolean(lFn(ctx)) && Boolean(rFn(ctx));
   }
   return (ctx) => Boolean(lFn(ctx)) || Boolean(rFn(ctx));
@@ -216,12 +292,12 @@ function compileNot(operand: Expr): InternalFn {
 
 function compileCall(fn: string, args: Expr[]): InternalFn {
   switch (fn) {
-    case 'count':
+    case "count":
       return compileCount(args);
-    case 'all':
-      return compileQuantifier('all', args);
-    case 'any':
-      return compileQuantifier('any', args);
+    case "all":
+      return compileQuantifier("all", args);
+    case "any":
+      return compileQuantifier("any", args);
     default:
       throw new ExpressionError(`Unknown function '${fn}'`, 0);
   }
@@ -229,7 +305,10 @@ function compileCall(fn: string, args: Expr[]): InternalFn {
 
 function compileCount(args: Expr[]): InternalFn {
   if (args.length !== 1) {
-    throw new ExpressionError(`count() expects exactly 1 argument, got ${args.length}`, 0);
+    throw new ExpressionError(
+      `count() expects exactly 1 argument, got ${args.length}`,
+      0,
+    );
   }
   const argFn = compile(args[0]);
   return (ctx) => {
@@ -239,23 +318,28 @@ function compileCount(args: Expr[]): InternalFn {
 }
 
 function countInventory(inv: unknown): number {
-  if (inv == null || typeof inv !== 'object') return 0;
+  if (inv == null || typeof inv !== "object") return 0;
   const obj = inv as InventoryLike;
   if (obj.pieceIds) return obj.pieceIds.length;
   if (obj.slots) return obj.slots.filter((s) => s != null).length;
-  if (obj.cells) return Object.values(obj.cells).filter((v) => v != null).length;
-  if (obj.nodes) return Object.values(obj.nodes).filter((v) => v != null).length;
+  if (obj.cells)
+    return Object.values(obj.cells).filter((v) => v != null).length;
+  if (obj.nodes)
+    return Object.values(obj.nodes).filter((v) => v != null).length;
   return 0;
 }
 
-function compileQuantifier(mode: 'all' | 'any', args: Expr[]): InternalFn {
+function compileQuantifier(mode: "all" | "any", args: Expr[]): InternalFn {
   if (args.length !== 1) {
-    throw new ExpressionError(`${mode}() expects exactly 1 argument, got ${args.length}`, 0);
+    throw new ExpressionError(
+      `${mode}() expects exactly 1 argument, got ${args.length}`,
+      0,
+    );
   }
   const predicateFn = compile(args[0]);
 
   return (ctx) => {
-    const method = mode === 'all' ? 'every' : 'some';
+    const method = mode === "all" ? "every" : "some";
     return ctx.playerIds[method]((pid) => {
       const bound: RuntimeCtx = { ...ctx, boundPlayerId: pid };
       return Boolean(predicateFn(bound));

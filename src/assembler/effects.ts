@@ -8,7 +8,7 @@
 //   2. effectDefs: Record<string, Record<string, unknown>> — every named
 //      effect compiled and stored by ID.
 //   3. walkEffectBody: shared walker that compiles a single effect body
-//      (walks value fields, handles { expr } compilation in the future).
+//      (walks value fields, compiles { expr: string } to CompiledValueFn closures).
 //
 // Design: inline effects are NOT passed through as opaque JSON. Every effect
 // body is walked via walkEffectBody so the expression-compilation hook
@@ -21,7 +21,13 @@ import type {
   Effect,
   EffectCall,
 } from "@chaincraft/gamedef";
-import type { EffectRegistration, EffectRef } from "@chaincraft/runtime";
+import type {
+  EffectRegistration,
+  EffectRef,
+  CompiledValueFn,
+} from "@chaincraft/runtime";
+import { compileExpression } from "#compiler/expressions/index.js";
+import { sessionToEvalContext } from "#compiler/expressions/eval-bridge.js";
 import {
   executeDistribute,
   executeFlip,
@@ -40,19 +46,19 @@ import {
 
 /** All built-in effect executors, keyed by effect kind string. */
 const BUILT_IN_EXECUTORS: Record<string, EffectRegistration> = {
-  'shuffle':    { kind: 'effect-executor', execute: executeShuffle },
-  'move':       { kind: 'effect-executor', execute: executeMove },
-  'distribute': { kind: 'effect-executor', execute: executeDistribute },
-  'message':    { kind: 'effect-executor', execute: executeMessage },
-  'set-state':  { kind: 'effect-executor', execute: executeSetState },
-  'update':     { kind: 'effect-executor', execute: executeUpdate },
-  'flip':       { kind: 'effect-executor', execute: executeFlip },
-  'roll':       { kind: 'effect-executor', execute: executeRoll },
-  'set-random': { kind: 'effect-executor', execute: executeSetRandom },
-  'orient':     { kind: 'effect-executor', execute: executeOrient },
-  'reveal':     { kind: 'effect-executor', execute: executeReveal },
-  'hide':       { kind: 'effect-executor', execute: executeHide },
-  'custom':     createCustomExecutor({}),
+  shuffle: { kind: "effect-executor", execute: executeShuffle },
+  move: { kind: "effect-executor", execute: executeMove },
+  distribute: { kind: "effect-executor", execute: executeDistribute },
+  message: { kind: "effect-executor", execute: executeMessage },
+  "set-state": { kind: "effect-executor", execute: executeSetState },
+  update: { kind: "effect-executor", execute: executeUpdate },
+  flip: { kind: "effect-executor", execute: executeFlip },
+  roll: { kind: "effect-executor", execute: executeRoll },
+  "set-random": { kind: "effect-executor", execute: executeSetRandom },
+  orient: { kind: "effect-executor", execute: executeOrient },
+  reveal: { kind: "effect-executor", execute: executeReveal },
+  hide: { kind: "effect-executor", execute: executeHide },
+  custom: createCustomExecutor({}),
 };
 
 /**
@@ -69,7 +75,7 @@ export function buildExecutorRegistry(
   for (const def of Object.values(effectDefs)) {
     const kind = def.kind as string | undefined;
     if (!kind) continue;
-    if (kind.startsWith('chaincraft:')) continue; // handled by mechanic passes
+    if (kind.startsWith("chaincraft:")) continue; // handled by mechanic passes
     if (!registry[kind] && BUILT_IN_EXECUTORS[kind]) {
       registry[kind] = BUILT_IN_EXECUTORS[kind];
     }
@@ -134,10 +140,20 @@ function walkValue(value: unknown): unknown {
 
   const obj = value as Record<string, unknown>;
 
-  // Future hook: compile expr strings to closures
-  // if ('expr' in obj && typeof obj.expr === 'string') {
-  //   return { expr: compileExpression(obj.expr) };
-  // }
+  if ("expr" in obj && typeof obj.expr === "string") {
+    const exprFn = compileExpression(obj.expr);
+    const compiled: CompiledValueFn = (session, ctx) =>
+      exprFn(
+        sessionToEvalContext(
+          session,
+          ctx.actorId ?? undefined,
+          ctx.actionInputs,
+          ctx.sourcePieceId,
+          ctx.targetPieceId,
+        ),
+      );
+    return { expr: compiled };
+  }
 
   // Recurse into nested objects (from/to/target/value/etc.)
   const result: Record<string, unknown> = {};

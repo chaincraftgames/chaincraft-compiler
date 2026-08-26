@@ -8,9 +8,13 @@
 import type { GameSession } from "@chaincraft/runtime";
 import type { EvalContext } from "../expressions/types.js";
 
+/** Converts a GameSession into an EvalContext. */
 export function sessionToEvalContext(
   session: GameSession,
   actorId?: string,
+  params?: Record<string, unknown>,
+  sourcePieceId?: string,
+  targetPieceId?: string,
 ): EvalContext {
   const players: EvalContext["players"] = {};
   for (const pid of session.players) {
@@ -33,5 +37,8 @@ export function sessionToEvalContext(
     gamepieces,
     playerIds: session.players,
     actorId,
+    params,
+    sourcePieceId,
+    targetPieceId,
   };
 }

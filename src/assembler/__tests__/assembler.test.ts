@@ -22,7 +22,7 @@ import { GameController } from '@chaincraft/runtime';
 import {
   assembleConfig, assembleInitialState, assembleSession,
   buildExecutorRegistry, assembleEffectDefs, assembleActions,
-  assembleFlow, assembleModule,
+  assembleFlow, assembleModule, walkEffectBody,
   UNASSIGNED_INVENTORY_ID,
 } from '../index.js';
 
@@ -441,5 +441,77 @@ describe('assembled High Card — e2e setup', () => {
 
     // announceStart message should have fired (onMessage receives the rendered text)
     expect(messages.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// walkEffectBody — { expr } compilation
+// ---------------------------------------------------------------------------
+
+describe('walkEffectBody — { expr } compilation', () => {
+  it('compiles { expr: string } value to a CompiledValueFn', () => {
+    const body = walkEffectBody({
+      kind: 'set-state',
+      target: 'game',
+      property: 'score',
+      value: { expr: 'game.property.score + 1' },
+    } as never);
+    expect(typeof (body.value as Record<string, unknown>).expr).toBe('function');
+  });
+
+  it('compiled { expr } evaluates correctly against a mock session', () => {
+    const body = walkEffectBody({
+      kind: 'set-state',
+      target: 'game',
+      property: 'score',
+      value: { expr: 'game.property.score + 1' },
+    } as never);
+
+    const mockSession = {
+      players: ['alice'],
+      state: {
+        gameProperties: { score: 5 },
+        gameInventories: {},
+        players: { alice: { properties: {}, inventories: {} } },
+        gamepieces: {},
+      },
+    } as never;
+    const mockCtx = { actorId: 'alice', actionInputs: {}, effectDef: {} } as never;
+
+    const exprFn = (body.value as Record<string, unknown>).expr as (s: never, c: never) => unknown;
+    expect(exprFn(mockSession, mockCtx)).toBe(6);
+  });
+
+  it('compiled { expr } resolves source piece property', () => {
+    const body = walkEffectBody({
+      kind: 'set-state',
+      target: 'game',
+      property: 'lastAttack',
+      value: { expr: 'source.property.attack' },
+    } as never);
+
+    const mockSession = {
+      players: [],
+      state: {
+        gameProperties: {},
+        gameInventories: {},
+        players: {},
+        gamepieces: { 'sword-1': { typeId: 'weapon', properties: { attack: 7 } } },
+      },
+    } as never;
+    const mockCtx = { actorId: null, actionInputs: {}, effectDef: {}, sourcePieceId: 'sword-1' } as never;
+
+    const exprFn = (body.value as Record<string, unknown>).expr as (s: never, c: never) => unknown;
+    expect(exprFn(mockSession, mockCtx)).toBe(7);
+  });
+
+  it('passthrough: non-expr value fields are unchanged', () => {
+    const body = walkEffectBody({
+      kind: 'set-state',
+      target: 'game',
+      property: 'score',
+      value: 42,
+    } as never);
+    expect(body.value).toBe(42);
   });
 });
