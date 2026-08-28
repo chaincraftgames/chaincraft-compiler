@@ -92,6 +92,8 @@ export interface EvalContext {
   sourcePieceId?: string;
   /** ID of the piece currently being iterated in an update loop; resolves `target.property.X`. */
   targetPieceId?: string;
+  /** Bound player ID for per-player iteration; resolves `player.property.X` outside quantifiers. */
+  boundPlayerId?: string;
 }
 
 // --- Error types -----------------------------------------------------------

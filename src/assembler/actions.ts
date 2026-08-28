@@ -9,17 +9,36 @@
 
 import type { ModularGameSpec, ActionInput } from '@chaincraft/gamedef';
 import type { ActionDef, ActionInputDef, ActionInputType } from '@chaincraft/runtime';
-import { normalizeEffectList } from './effects.js';
+import { normalizeEffectList } from '#compiler/assembler/effects.js';
+import {
+  compilePieceFilter,
+  compilePlayerFilter,
+  compilePrecondition,
+} from '#compiler/expressions/eval-bridge.js';
 
-/**
- * Map a gamedef ActionInput to the runtime's ActionInputDef.
- * The shapes are structurally close — this is a typed passthrough.
- */
+/** Map a gamedef ActionInput to the runtime's ActionInputDef, compiling filter expressions. */
 function mapActionInput(input: ActionInput): ActionInputDef {
+  const rawType = input.type as Record<string, unknown>;
+  let type: ActionInputType;
+
+  if (rawType.kind === 'gamepiece-select' && typeof rawType.filter === 'string') {
+    type = {
+      ...(rawType as ActionInputType),
+      filter: compilePieceFilter(rawType.filter),
+    } as ActionInputType;
+  } else if (rawType.kind === 'player-select' && typeof rawType.filter === 'string') {
+    type = {
+      ...(rawType as ActionInputType),
+      filter: compilePlayerFilter(rawType.filter),
+    } as ActionInputType;
+  } else {
+    type = rawType as ActionInputType;
+  }
+
   return {
     id: input.id,
     ...(input.label != null && { label: input.label }),
-    type: input.type as ActionInputType,
+    type,
     ...(input.validation != null && { validation: input.validation }),
   };
 }
@@ -50,12 +69,18 @@ export function assembleActions(
       (input) => mapActionInput(input),
     );
 
+    const precondition =
+      typeof action.preconditions === 'string'
+        ? compilePrecondition(action.preconditions)
+        : undefined;
+
     actions[action.id] = {
       id: action.id,
       label: action.label ?? action.id,
       description: action.description ?? "",
       inputs,
       effects,
+      ...(precondition != null && { precondition }),
     };
   }
 

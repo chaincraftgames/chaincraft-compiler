@@ -27,7 +27,7 @@ import type {
   CompiledValueFn,
 } from "@chaincraft/runtime";
 import { compileExpression } from "#compiler/expressions/index.js";
-import { sessionToEvalContext } from "#compiler/expressions/eval-bridge.js";
+import { sessionToEvalContext, compilePieceFilter } from "#compiler/expressions/eval-bridge.js";
 import {
   executeDistribute,
   executeFlip,
@@ -96,13 +96,49 @@ export function walkEffectBody(
   effect: NamedEffect | Effect,
 ): Record<string, unknown> {
   const raw = effect as unknown as Record<string, unknown>;
+  const kind = raw.kind as string | undefined;
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(raw)) {
     if (key === "id") continue; // strip the name — stored as the effectDefs key
-    result[key] = walkValue(value);
+    const selectorFields = kind ? GAMEPIECE_SELECTOR_FIELDS[kind] : undefined;
+    if (selectorFields?.includes(key)) {
+      result[key] = walkSelector(value);
+    } else {
+      result[key] = walkValue(value);
+    }
   }
 
+  return result;
+}
+
+/** Fields that hold a GamepieceSelector, keyed by effect kind. */
+const GAMEPIECE_SELECTOR_FIELDS: Record<string, string[]> = {
+  move: ["from"],
+  distribute: ["from"],
+  flip: ["pieces"],
+  update: ["pieces"],
+  orient: ["pieces"],
+  reveal: ["pieces"],
+  hide: ["pieces"],
+  roll: ["pieces"],
+  shuffle: [],
+};
+
+/** Walk a GamepieceSelector, compiling its filter expression if present. */
+function walkSelector(value: unknown): unknown {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return walkValue(value);
+  }
+  const sel = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(sel)) {
+    if (k === "filter" && typeof v === "string") {
+      result[k] = compilePieceFilter(v);
+    } else {
+      result[k] = walkValue(v);
+    }
+  }
   return result;
 }
 

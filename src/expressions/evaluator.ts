@@ -24,13 +24,8 @@ import type {
   InventoryLike,
   ArithOp,
   CompareOp,
-} from "./types.js";
-import { ExpressionError } from "./types.js";
-
-/** Internal context threaded through evaluation, extends EvalContext with quantifier binding. */
-interface RuntimeCtx extends EvalContext {
-  boundPlayerId?: string;
-}
+} from "#compiler/expressions/types.js";
+import { ExpressionError } from "#compiler/expressions/types.js";
 
 export type ExprFn = (ctx: EvalContext) => unknown;
 export type PredicateFn = (ctx: EvalContext) => boolean;
@@ -39,8 +34,7 @@ export type PredicateFn = (ctx: EvalContext) => boolean;
  * Compile an AST into an evaluation function.
  */
 export function buildEvaluator(ast: Expr): ExprFn {
-  const fn = compile(ast);
-  return (ctx: EvalContext) => fn(ctx as RuntimeCtx);
+  return compile(ast);
 }
 
 /**
@@ -49,15 +43,16 @@ export function buildEvaluator(ast: Expr): ExprFn {
  */
 export function buildPredicate(ast: Expr): PredicateFn {
   const fn = compile(ast);
-  return (ctx: EvalContext) => Boolean(fn(ctx as RuntimeCtx));
+  return (ctx: EvalContext) => Boolean(fn(ctx));
 }
 
 // ---------------------------------------------------------------------------
 // Internal recursive compiler
 // ---------------------------------------------------------------------------
 
-type InternalFn = (ctx: RuntimeCtx) => unknown;
+type InternalFn = (ctx: EvalContext) => unknown;
 
+/** Delegates to the appropriate compile* function for this node kind. */
 function compile(node: Expr): InternalFn {
   switch (node.kind) {
     case "literal":
@@ -87,7 +82,7 @@ function compilePath(segments: string[]): InternalFn {
   const root = segments[0];
   const rest = segments.slice(1);
 
-  return (ctx: RuntimeCtx) => {
+  return (ctx: EvalContext) => {
     const { base, skip } = resolveRoot(ctx, root, rest);
     return walkPath(base, rest, skip);
   };
@@ -100,6 +95,7 @@ interface RootResolution {
   skip: number;
 }
 
+/** Returns the base object and how many leading rest-segments the resolver consumed (skip). */
 function resolvePlayerPaths(
   player: {
     properties: Record<string, unknown>;
@@ -117,8 +113,9 @@ function resolvePlayerPaths(
   );
 }
 
+/** Maps a path root to its base object and the number of rest-segments already consumed. */
 function resolveRoot(
-  ctx: RuntimeCtx,
+  ctx: EvalContext,
   root: string,
   rest: string[],
 ): RootResolution {
@@ -152,7 +149,7 @@ function resolveRoot(
       const pid = ctx.boundPlayerId;
       if (!pid) {
         throw new ExpressionError(
-          '"player" is only valid inside all() or any() quantifiers',
+          '"player" requires boundPlayerId in context (quantifier or per-player filter)',
           0,
         );
       }
@@ -209,14 +206,27 @@ function resolveRoot(
         );
       return { base: targetPiece.properties, skip: 1 };
     }
+    case "piece": {
+      if (!ctx.targetPieceId)
+        throw new ExpressionError(
+          '"piece" requires targetPieceId in context (piece filter)',
+          0,
+        );
+      const piece = ctx.gamepieces[ctx.targetPieceId];
+      if (!piece)
+        throw new ExpressionError(`Piece '${ctx.targetPieceId}' not found`, 0);
+      if (rest[0] === "property") return { base: piece.properties, skip: 1 };
+      return { base: piece, skip: 0 };
+    }
     default:
       throw new ExpressionError(
-        `Unknown path root '${root}'; expected 'game', 'actor', 'player', 'param', 'source', or 'target'`,
+        `Unknown path root '${root}'; expected 'game', 'actor', 'player', 'param', 'source', 'target', or 'piece'`,
         0,
       );
   }
 }
 
+/** Walks remaining segments from skip onward; returns undefined for null/missing intermediate nodes. */
 function walkPath(base: unknown, segments: string[], skip: number): unknown {
   let current = base;
   for (let i = skip; i < segments.length; i++) {
@@ -238,6 +248,7 @@ function compileCompare(op: CompareOp, left: Expr, right: Expr): InternalFn {
   };
 }
 
+/** Only >=, <=, >, < coerce to numbers; == and != use strict equality. */
 function compareValues(op: CompareOp, l: unknown, r: unknown): boolean {
   switch (op) {
     case "==":
@@ -317,6 +328,7 @@ function compileCount(args: Expr[]): InternalFn {
   };
 }
 
+/** Counts occupied slots across all inventory structure shapes. */
 function countInventory(inv: unknown): number {
   if (inv == null || typeof inv !== "object") return 0;
   const obj = inv as InventoryLike;
@@ -329,6 +341,7 @@ function countInventory(inv: unknown): number {
   return 0;
 }
 
+/** Sets boundPlayerId for each player so the body predicate can use player.* paths. */
 function compileQuantifier(mode: "all" | "any", args: Expr[]): InternalFn {
   if (args.length !== 1) {
     throw new ExpressionError(
@@ -341,7 +354,7 @@ function compileQuantifier(mode: "all" | "any", args: Expr[]): InternalFn {
   return (ctx) => {
     const method = mode === "all" ? "every" : "some";
     return ctx.playerIds[method]((pid) => {
-      const bound: RuntimeCtx = { ...ctx, boundPlayerId: pid };
+      const bound: EvalContext = { ...ctx, boundPlayerId: pid };
       return Boolean(predicateFn(bound));
     });
   };
