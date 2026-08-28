@@ -44,24 +44,27 @@ export function sessionToEvalContext(
   };
 }
 
-/** Compile a piece-filter expression into the runtime's (session, pieceId) => boolean shape. */
+/** Compile a piece-filter expression into the runtime's (session, pieceId, actorId?) => boolean shape. */
 export function compilePieceFilter(
   expr: string,
-): (session: GameSession, pieceId: string) => boolean {
+): (session: GameSession, pieceId: string, actorId?: string) => boolean {
   const predicate = compilePredicate(expr);
-  return (session, pieceId) =>
+  return (session, pieceId, actorId) =>
     predicate(
-      sessionToEvalContext(session, undefined, undefined, undefined, pieceId),
+      sessionToEvalContext(session, actorId, undefined, undefined, pieceId),
     );
 }
 
-/** Compile a player-filter expression into the runtime's (session, playerId) => boolean shape. */
+/** Compile a player-filter expression into the runtime's (session, playerId, actorId?) => boolean shape. */
 export function compilePlayerFilter(
   expr: string,
-): (session: GameSession, playerId: string) => boolean {
+): (session: GameSession, playerId: string, actorId?: string) => boolean {
   const predicate = compilePredicate(expr);
-  return (session, playerId) =>
-    predicate({ ...sessionToEvalContext(session), boundPlayerId: playerId });
+  return (session, playerId, actorId) =>
+    predicate({
+      ...sessionToEvalContext(session, actorId),
+      boundPlayerId: playerId,
+    });
 }
 
 /** Compile a precondition expression into the runtime's (session, actorId) => boolean shape. */
