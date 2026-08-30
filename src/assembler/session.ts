@@ -6,10 +6,17 @@
 // ---------------------------------------------------------------------------
 
 import type { ModularGameSpec } from "@chaincraft/gamedef";
-import { createSeededRng, GameEventEmitter } from "@chaincraft/runtime";
-import { assembleConfig } from "./config.js";
-import { assembleInitialState } from "./state.js";
-import type { GameSession, GameConfig } from "./types.js";
+import {
+  createSeededRng,
+  EffectBus,
+  GameEventEmitter,
+  PassiveActivation,
+  EffectRegistration,
+  registerPassiveActivations,
+} from "@chaincraft/runtime";
+import { assembleConfig } from "#compiler/assembler/config.js";
+import { assembleInitialState } from "#compiler/assembler/state.js";
+import type { GameSession, GameConfig } from "#compiler/assembler/types.js";
 
 /** Fixed seed used for `seedSource: fixed` (deterministic test/replay games). */
 export const FIXED_TEST_SEED = 42;
@@ -45,12 +52,14 @@ export interface AssembledSessionFactory {
 export function assembleSession(
   spec: ModularGameSpec,
   specId: string,
+  passiveActivations: PassiveActivation[] = [],
+  effects: Record<string, EffectRegistration> = {},
 ): AssembledSessionFactory {
   const config = assembleConfig(spec);
 
-  return {
-    config,
-    createSession: (gameId: string, players: string[]): GameSession => ({
+  const createSession = (gameId: string, players: string[]): GameSession => {
+    const bus = new EffectBus();
+    const session: GameSession = {
       gameId,
       specId,
       config,
@@ -59,7 +68,15 @@ export function assembleSession(
       outbox: [],
       rng: createSeededRng(resolveSeed(spec.metadata?.rng?.seedSource, gameId)),
       events: new GameEventEmitter(),
+      bus,
       _inventoryCache: new Map(),
-    }),
+    };
+    registerPassiveActivations(bus, passiveActivations, session, effects);
+    return session;
+  };
+
+  return {
+    config,
+    createSession,
   };
 }

@@ -14,7 +14,8 @@
 // 'piece' scoped inventories are left unhandled until a spec exercises them.
 // ---------------------------------------------------------------------------
 
-import type { ModularGameSpec } from '@chaincraft/gamedef';
+import type { ModularGameSpec } from "@chaincraft/gamedef";
+import { enumerateCatalogPieces } from "#compiler/assembler/catalog.js";
 import type {
   GameConfig,
   GameState,
@@ -23,21 +24,21 @@ import type {
   InventoryStructure,
   PlayerState,
   PropertyConfig,
-} from './types.js';
-import { UNASSIGNED_INVENTORY_ID } from './types.js';
+} from "./types.js";
+import { UNASSIGNED_INVENTORY_ID } from "./types.js";
 
 function emptyInventoryData(structure: InventoryStructure): InventoryData {
   switch (structure) {
-    case 'none':
-      return { structure: 'none', pieceIds: [] };
-    case 'stack':
-      return { structure: 'stack', pieceIds: [] };
-    case 'line':
-      return { structure: 'line', slots: [] };
-    case 'grid':
-      return { structure: 'grid', cells: {} };
-    case 'graph':
-      return { structure: 'graph', nodes: {} };
+    case "none":
+      return { structure: "none", pieceIds: [] };
+    case "stack":
+      return { structure: "stack", pieceIds: [] };
+    case "line":
+      return { structure: "line", slots: [] };
+    case "grid":
+      return { structure: "grid", order: "row-major", cells: {} };
+    case "graph":
+      return { structure: "graph", nodes: {} };
   }
 }
 
@@ -48,39 +49,61 @@ function resolveDefault(
   playerCount: number,
 ): unknown {
   if (prop.computed) return undefined; // computed properties are never stored
-  if (rawDefault && typeof rawDefault === 'object' && 'fromPlayerCount' in rawDefault) {
+  if (
+    rawDefault &&
+    typeof rawDefault === "object" &&
+    "fromPlayerCount" in rawDefault
+  ) {
     return playerCount;
   }
   return rawDefault;
 }
 
-function assembleGameProperties(spec: ModularGameSpec, config: GameConfig, playerCount: number): Record<string, unknown> {
+function assembleGameProperties(
+  spec: ModularGameSpec,
+  config: GameConfig,
+  playerCount: number,
+): Record<string, unknown> {
   const props = spec.state?.game?.properties ?? [];
   return Object.fromEntries(
-    props.map((p) => [p.id, resolveDefault(config.gameProperties[p.id], p.default, playerCount)]),
+    props.map((p) => [
+      p.id,
+      resolveDefault(config.gameProperties[p.id], p.default, playerCount),
+    ]),
   );
 }
 
-function assemblePlayerProperties(spec: ModularGameSpec, config: GameConfig, playerCount: number): Record<string, unknown> {
+function assemblePlayerProperties(
+  spec: ModularGameSpec,
+  config: GameConfig,
+  playerCount: number,
+): Record<string, unknown> {
   const props = spec.state?.player?.properties ?? [];
   return Object.fromEntries(
-    props.map((p) => [p.id, resolveDefault(config.playerProperties[p.id], p.default, playerCount)]),
+    props.map((p) => [
+      p.id,
+      resolveDefault(config.playerProperties[p.id], p.default, playerCount),
+    ]),
   );
 }
 
-function assembleGameInventories(config: GameConfig): Record<string, InventoryData> {
+function assembleGameInventories(
+  config: GameConfig,
+): Record<string, InventoryData> {
   const result: Record<string, InventoryData> = {};
   for (const [id, inv] of Object.entries(config.inventories)) {
-    if (inv.scope !== 'game') continue;
+    if (inv.scope !== "game") continue;
     result[id] = emptyInventoryData(inv.structure);
   }
   return result;
 }
 
-function assemblePlayerInventories(config: GameConfig): Record<string, InventoryData> {
+function assemblePlayerInventories(
+  config: GameConfig,
+): Record<string, InventoryData> {
   const result: Record<string, InventoryData> = {};
   for (const [id, inv] of Object.entries(config.inventories)) {
-    if (inv.scope !== 'player') continue;
+    if (inv.scope !== "player") continue;
     result[id] = emptyInventoryData(inv.structure);
   }
   return result;
@@ -99,34 +122,23 @@ function assemblePlayerInventories(config: GameConfig): Record<string, Inventory
  * properties have no `default` at all).
  */
 function assembleGamepieces(spec: ModularGameSpec): Record<string, Gamepiece> {
-  const entries = spec.catalog?.entries ?? [];
   const typeDefs = spec.gamepieceTypes?.types ?? [];
   const gamepieces: Record<string, Gamepiece> = {};
-  const counters: Record<string, number> = {};
 
-  for (const entry of entries) {
+  for (const { entry, pieceIds } of enumerateCatalogPieces(spec)) {
     const typeDef = typeDefs.find((t) => t.id === entry.typeId);
-    const quantity = entry.quantity ?? 1;
 
-    for (let i = 0; i < quantity; i++) {
-      let id: string;
-      if (entry.id && quantity === 1) {
-        id = entry.id;
-      } else {
-        const next = (counters[entry.typeId] ?? 0) + 1;
-        counters[entry.typeId] = next;
-        id = `${entry.typeId}-${next}`;
-      }
-
+    for (const id of pieceIds) {
       const properties: Record<string, unknown> = {};
       for (const propDef of typeDef?.properties ?? []) {
-        if (propDef.default !== undefined) properties[propDef.id] = propDef.default;
+        if (propDef.default !== undefined)
+          properties[propDef.id] = propDef.default;
       }
       Object.assign(properties, entry.properties ?? {});
 
       gamepieces[id] = {
         typeId: entry.typeId,
-        ownerId: '',
+        ownerId: "",
         properties,
         faceUp: false,
         exhausted: false,
@@ -144,12 +156,16 @@ function assembleGamepieces(spec: ModularGameSpec): Record<string, Gamepiece> {
  * onEnter setup effects are responsible for moving them into starting
  * inventories once the flow runner begins.
  */
-export function assembleInitialState(spec: ModularGameSpec, config: GameConfig, players: string[]): GameState {
+export function assembleInitialState(
+  spec: ModularGameSpec,
+  config: GameConfig,
+  players: string[],
+): GameState {
   const gamepieces = assembleGamepieces(spec);
 
   const gameInventories = assembleGameInventories(config);
   gameInventories[UNASSIGNED_INVENTORY_ID] = {
-    structure: 'none',
+    structure: "none",
     pieceIds: Object.keys(gamepieces),
   };
 
@@ -158,10 +174,14 @@ export function assembleInitialState(spec: ModularGameSpec, config: GameConfig, 
     players.map((pid) => [
       pid,
       {
+        roles: [],
         properties: assemblePlayerProperties(spec, config, players.length),
         // Deep-clone per player — each player's inventories are independent instances.
         inventories: Object.fromEntries(
-          Object.entries(playerInventoryTemplate).map(([id, data]) => [id, structuredClone(data)]),
+          Object.entries(playerInventoryTemplate).map(([id, data]) => [
+            id,
+            structuredClone(data),
+          ]),
         ),
       },
     ]),
