@@ -14,8 +14,8 @@
 //   source.property.X     → ctx.gamepieces[ctx.sourcePieceId].properties[X]
 //   target.property.X     → ctx.gamepieces[ctx.targetPieceId].properties[X]
 //
-// The `player` root is only valid inside all()/any() quantifiers which
-// bind boundPlayerId for each iteration.
+// The `player` root is only valid inside all()/any()/countPlayers() quantifiers
+// and per-player filters, which bind boundPlayerId for each iteration.
 // ---------------------------------------------------------------------------
 
 import type {
@@ -317,6 +317,8 @@ function compileCall(fn: string, args: Expr[]): InternalFn {
       return compileQuantifier("all", args);
     case "any":
       return compileQuantifier("any", args);
+    case "countPlayers":
+      return compileCountPlayers(args);
     default:
       throw new ExpressionError(`Unknown function '${fn}'`, 0);
   }
@@ -366,4 +368,19 @@ function compileQuantifier(mode: "all" | "any", args: Expr[]): InternalFn {
       return Boolean(predicateFn(bound));
     });
   };
+}
+
+function compileCountPlayers(args: Expr[]): InternalFn {
+  if (args.length !== 1) {
+    throw new ExpressionError(
+      `countPlayers() expects exactly 1 argument, got ${args.length}`,
+      0,
+    );
+  }
+  const predicateFn = compile(args[0]);
+
+  return (ctx) =>
+    ctx.playerIds.filter((pid) =>
+      Boolean(predicateFn({ ...ctx, boundPlayerId: pid })),
+    ).length;
 }

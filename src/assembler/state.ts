@@ -15,6 +15,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ModularGameSpec } from "@chaincraft/gamedef";
+import { ELIMINATED_PROPERTY } from "@chaincraft/runtime";
 import { enumerateCatalogPieces } from "#compiler/assembler/catalog.js";
 import type {
   GameConfig,
@@ -79,12 +80,15 @@ function assemblePlayerProperties(
   playerCount: number,
 ): Record<string, unknown> {
   const props = spec.state?.player?.properties ?? [];
-  return Object.fromEntries(
-    props.map((p) => [
-      p.id,
-      resolveDefault(config.playerProperties[p.id], p.default, playerCount),
-    ]),
-  );
+  return {
+    ...Object.fromEntries(
+      props.map((p) => [
+        p.id,
+        resolveDefault(config.playerProperties[p.id], p.default, playerCount),
+      ]),
+    ),
+    [ELIMINATED_PROPERTY]: false,
+  };
 }
 
 function assembleGameInventories(

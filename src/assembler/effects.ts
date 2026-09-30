@@ -27,7 +27,7 @@ import type {
   CompiledValueFn,
 } from "@chaincraft/runtime";
 import { compileExpression } from "#compiler/expressions/index.js";
-import { sessionToEvalContext, compilePieceFilter } from "#compiler/expressions/eval-bridge.js";
+import { sessionToEvalContext, compilePieceFilter, compilePlayerFilter } from "#compiler/expressions/eval-bridge.js";
 import {
   executeDistribute,
   executeFlip,
@@ -104,12 +104,28 @@ export function walkEffectBody(
     const selectorFields = kind ? GAMEPIECE_SELECTOR_FIELDS[kind] : undefined;
     if (selectorFields?.includes(key)) {
       result[key] = walkSelector(value);
+    } else if (key === "target" && isMatchingTarget(value)) {
+      result[key] = {
+        kind: "matching",
+        condition: compilePlayerFilter(value.condition),
+      };
     } else {
       result[key] = walkValue(value);
     }
   }
 
   return result;
+}
+
+function isMatchingTarget(
+  value: unknown,
+): value is { kind: "matching"; condition: string } {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    (value as Record<string, unknown>).kind === "matching" &&
+    typeof (value as Record<string, unknown>).condition === "string"
+  );
 }
 
 /** Fields that hold a GamepieceSelector, keyed by effect kind. */

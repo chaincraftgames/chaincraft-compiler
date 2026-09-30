@@ -37,7 +37,7 @@ import type {
   GameSession,
 } from "@chaincraft/runtime";
 import { normalizeEffectList } from "./effects.js";
-import { sessionToEvalContext } from "../expressions/eval-bridge.js";
+import { sessionToEvalContext, compilePlayerFilter } from "#compiler/expressions/eval-bridge.js";
 import { compileExpression, compilePredicate } from "../expressions/index.js";
 import type {
   ActorSpec,
@@ -311,14 +311,19 @@ function assembleWinConditions(
         };
       }
       case "condition": {
-        const predFn = compilePredicate(wc.condition);
+        if (/\bactor\./.test(wc.condition)) {
+          throw new Error(
+            `flow assembler: winCondition[${i}] references 'actor', but win conditions run after the game completes with no actor. Use 'player.*' for the player being evaluated.`,
+          );
+        }
+        const playerFilter = compilePlayerFilter(wc.condition);
         return {
           rule: "condition" as const,
           condition: (
             session: import("@chaincraft/runtime").GameSession,
-            actorId?: string,
+            playerId?: string,
           ) => {
-            return predFn(sessionToEvalContext(session, actorId));
+            return playerFilter(session, playerId!);
           },
           ...(onVictory && { onVictory }),
         };

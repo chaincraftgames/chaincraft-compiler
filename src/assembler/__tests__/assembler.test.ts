@@ -97,9 +97,10 @@ describe('assembleConfig — High Card', () => {
     });
   });
 
-  it('assembles player properties', () => {
+  it('assembles player properties (plus the reserved eliminated flag)', () => {
     expect(config.playerProperties).toEqual({
       score: { mutable: true, min: 0, max: 3 },
+      eliminated: { mutable: true },
     });
   });
 });
@@ -145,7 +146,7 @@ describe('assembleInitialState — High Card', () => {
 
   it('initializes each player with default properties and empty hand', () => {
     for (const pid of players) {
-      expect(state.players[pid].properties).toEqual({ score: 0 });
+      expect(state.players[pid].properties).toEqual({ score: 0, eliminated: false });
       expect(state.players[pid].inventories.hand).toEqual({ structure: 'none', pieceIds: [] });
     }
   });
@@ -438,6 +439,38 @@ describe('assembleFlow — loop endCondition', () => {
       assembleLoop({ endCondition: 'any(player.property.score >= 2)', finalRound: true }),
     ).toThrow('finalRound requires checkAfter: turn');
   });
+
+  it('countPlayers() over the reserved eliminated flag', () => {
+    const { loop, session } = assembleLoop({
+      endCondition: 'countPlayers(not player.property.eliminated) <= 1',
+    });
+    expect(loop.endCondition!(session)).toBe(false);
+    session.state.players.bob.properties.eliminated = true;
+    expect(loop.endCondition!(session)).toBe(true);
+  });
+});
+
+describe('assembleFlow — condition win conditions', () => {
+  it('binds player.* to each evaluated player', () => {
+    const spec = loadHighCardSpec();
+    const root = spec.flow!.root as unknown as { winConditions?: unknown[] };
+    root.winConditions = [{ rule: 'condition', condition: 'not player.property.eliminated' }];
+    const game = assembleFlow(spec, 'high-card', {});
+    const session = assembleSession(spec, 'high-card').createSession('g1', ['alice', 'bob']);
+    session.state.players.alice.properties.eliminated = true;
+
+    const wc = game.winConditions![0];
+    if (wc.rule !== 'condition') throw new Error('expected condition rule');
+    expect(wc.condition(session, 'alice')).toBe(false);
+    expect(wc.condition(session, 'bob')).toBe(true);
+  });
+
+  it('rejects actor paths (no actor exists at game end)', () => {
+    const spec = loadHighCardSpec();
+    const root = spec.flow!.root as unknown as { winConditions?: unknown[] };
+    root.winConditions = [{ rule: 'condition', condition: 'actor.property.score >= 2' }];
+    expect(() => assembleFlow(spec, 'high-card', {})).toThrow("references 'actor'");
+  });
 });
 
 describe('assembleModule — High Card', () => {
@@ -579,5 +612,31 @@ describe('walkEffectBody — { expr } compilation', () => {
       value: 42,
     } as never);
     expect(body.value).toBe(42);
+  });
+
+  it('compiles a matching player-target condition into a per-player filter', () => {
+    const body = walkEffectBody({
+      kind: 'set-state',
+      path: 'player.property.eliminated',
+      value: true,
+      target: { kind: 'matching', condition: 'count(player.inventory.hand) == 0' },
+    } as never);
+    const target = body.target as { kind: string; condition: (s: never, p: string) => boolean };
+    expect(target.kind).toBe('matching');
+
+    const mockSession = {
+      players: ['alice', 'bob'],
+      state: {
+        gameProperties: {},
+        gameInventories: {},
+        players: {
+          alice: { properties: {}, inventories: { hand: { structure: 'none', pieceIds: ['c1'] } } },
+          bob: { properties: {}, inventories: { hand: { structure: 'none', pieceIds: [] } } },
+        },
+        gamepieces: {},
+      },
+    } as never;
+    expect(target.condition(mockSession, 'alice')).toBe(false);
+    expect(target.condition(mockSession, 'bob')).toBe(true);
   });
 });

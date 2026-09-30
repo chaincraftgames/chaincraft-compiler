@@ -9,6 +9,7 @@
 
 import type { ModularGameSpec, PropertyType, StatePropertySchema } from '@chaincraft/gamedef';
 import { z } from 'zod';
+import { ELIMINATED_PROPERTY } from '@chaincraft/runtime';
 import type {
   GameConfig,
   GamepieceTypeConfig,
@@ -57,7 +58,10 @@ function assembleGameProperties(spec: ModularGameSpec): Record<string, PropertyC
 
 function assemblePlayerProperties(spec: ModularGameSpec): Record<string, PropertyConfig> {
   const props = spec.state?.player?.properties ?? [];
-  return Object.fromEntries(props.map((p) => [p.id, mapStateProperty(p)]));
+  return {
+    ...Object.fromEntries(props.map((p) => [p.id, mapStateProperty(p)])),
+    [ELIMINATED_PROPERTY]: { mutable: true },
+  };
 }
 
 function assembleGamepieceTypes(spec: ModularGameSpec): Record<string, GamepieceTypeConfig> {

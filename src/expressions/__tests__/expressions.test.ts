@@ -258,6 +258,24 @@ describe('all() and any()', () => {
   });
 });
 
+describe('countPlayers()', () => {
+  it('counts players for whom the predicate holds', () => {
+    const ctx = makeCtx();
+    expect(compileExpression('countPlayers(not player.property.eliminated)')(ctx)).toBe(2);
+    ctx.players.bob.properties.eliminated = true;
+    expect(compileExpression('countPlayers(not player.property.eliminated)')(ctx)).toBe(1);
+  });
+
+  it('works in comparisons', () => {
+    const ctx = makeCtx();
+    expect(compilePredicate('countPlayers(player.property.score >= 2) == 1')(ctx)).toBe(true);
+  });
+
+  it('rejects wrong arity', () => {
+    expect(() => compileExpression('countPlayers()')).toThrow('countPlayers() expects exactly 1 argument');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Compound expressions (Liar's Dice style)
 // ---------------------------------------------------------------------------

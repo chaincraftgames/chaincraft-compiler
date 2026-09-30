@@ -19,6 +19,7 @@
 //   count(inventoryPath)  → number of pieces in the resolved inventory
 //   all(booleanExpr)      → true if expr holds for every player
 //   any(booleanExpr)      → true if expr holds for at least one player
+//   countPlayers(booleanExpr) → number of players for whom expr holds
 // ---------------------------------------------------------------------------
 
 // --- AST node types ---------------------------------------------------------
