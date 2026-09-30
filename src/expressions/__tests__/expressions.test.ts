@@ -372,6 +372,40 @@ describe('source and target piece paths', () => {
 });
 
 // ---------------------------------------------------------------------------
+// trigger paths (passive effects)
+// ---------------------------------------------------------------------------
+
+describe('trigger paths', () => {
+  const ctx = makeCtx({
+    trigger: {
+      path: 'player.property.life',
+      previousValue: 30,
+      newValue: 25,
+      delta: -5,
+      direction: 'decrease',
+      targetId: 'p2',
+    },
+  });
+
+  it('resolves trigger.delta', () => {
+    expect(compileExpression('trigger.delta')(ctx)).toBe(-5);
+  });
+
+  it('resolves trigger.previousValue and trigger.newValue', () => {
+    expect(compileExpression('trigger.previousValue')(ctx)).toBe(30);
+    expect(compileExpression('trigger.newValue')(ctx)).toBe(25);
+  });
+
+  it('supports arithmetic on trigger fields', () => {
+    expect(compileExpression('0 - trigger.delta')(ctx)).toBe(5);
+  });
+
+  it('throws when trigger is absent', () => {
+    expect(() => compileExpression('trigger.delta')(makeCtx())).toThrow('trigger');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AST inspection (parseExpression)
 // ---------------------------------------------------------------------------
 

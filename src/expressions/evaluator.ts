@@ -218,9 +218,17 @@ function resolveRoot(
       if (rest[0] === "property") return { base: piece.properties, skip: 1 };
       return { base: piece, skip: 0 };
     }
+    case "trigger": {
+      if (!ctx.trigger)
+        throw new ExpressionError(
+          '"trigger" requires trigger in context (passive effects only)',
+          0,
+        );
+      return { base: ctx.trigger, skip: 0 };
+    }
     default:
       throw new ExpressionError(
-        `Unknown path root '${root}'; expected 'game', 'actor', 'player', 'param', 'source', 'target', or 'piece'`,
+        `Unknown path root '${root}'; expected 'game', 'actor', 'player', 'param', 'source', 'target', 'piece', or 'trigger'`,
         0,
       );
   }

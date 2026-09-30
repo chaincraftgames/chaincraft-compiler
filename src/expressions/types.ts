@@ -13,6 +13,7 @@
 //   player.inventory.X    → bound player (inside all/any quantifiers)
 //   source.property.X     → gamepieces[sourcePieceId].properties[X]
 //   target.property.X     → gamepieces[targetPieceId].properties[X]
+//   trigger.X             → trigger[X] (passive effects only)
 //
 // Functions:
 //   count(inventoryPath)  → number of pieces in the resolved inventory
@@ -92,6 +93,8 @@ export interface EvalContext {
   sourcePieceId?: string;
   /** ID of the piece currently being iterated in an update loop; resolves `target.property.X`. */
   targetPieceId?: string;
+  /** Facts about the state-write that fired a passive; resolves `trigger.X`. Absent outside passives. */
+  trigger?: Record<string, unknown>;
   /** Bound player ID for per-player iteration; resolves `player.property.X` outside quantifiers. */
   boundPlayerId?: string;
 }

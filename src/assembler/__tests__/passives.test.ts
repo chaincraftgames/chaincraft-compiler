@@ -19,13 +19,17 @@ import { assembleModule } from "../index.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-function loadSpec(filename: string) {
+function loadSpec(
+  filename: string,
+  mutate?: (raw: Record<string, unknown>) => void,
+) {
   const raw = load(
     readFileSync(
       join(__dirname, "../../../../gamedef/examples/", filename),
       "utf-8",
     ),
-  );
+  ) as Record<string, unknown>;
+  mutate?.(raw);
   const result = validate(raw);
   if (!result.valid) {
     throw new Error(
@@ -123,5 +127,169 @@ describe("Passives — lifesteal and thorns (board-battler)", () => {
     });
 
     expect(life(session, "alice")).toBe(aliceBefore - 2); // thorns dealt 2 to the attacker
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trigger context — passives that read the triggering write and source piece.
+// board-battler's passives use flat amounts by design; these tests swap the
+// passive effect values in-memory before validation to exercise trigger.* and
+// source.property.* inside passive effects.
+// ---------------------------------------------------------------------------
+
+type PassiveDef = { id: string; effects: { value: unknown }[] };
+
+function setPassiveValue(
+  raw: Record<string, unknown>,
+  passiveId: string,
+  value: unknown,
+): void {
+  const effects = raw.effects as { passives: PassiveDef[] };
+  const passive = effects.passives.find((p) => p.id === passiveId);
+  if (!passive) throw new Error(`passive ${passiveId} not found`);
+  passive.effects[0].value = value;
+}
+
+describe("Passives — trigger context and source piece", () => {
+  const PLAYERS = ["alice", "bob"];
+
+  function makeSession(
+    mutate: (raw: Record<string, unknown>) => void,
+  ): GameSession {
+    const spec = loadSpec("board-battler.yaml", mutate);
+    const mod = assembleModule(spec, "board-battler");
+    return mod.createSession("passive-trigger-test", PLAYERS);
+  }
+
+  it("proportional lifesteal via { var: trigger.delta, negate }: heals exactly the damage dealt", async () => {
+    const session = makeSession((raw) =>
+      setPassiveValue(raw, "lifesteal", {
+        delta: { var: "trigger.delta", negate: true },
+      }),
+    );
+    placeOnField(session, "bloodHunter", "alice");
+    session.state.players["alice"].properties["life"] = 20;
+    const bobBefore = life(session, "bob");
+
+    await executeSetState(session, {
+      actorId: "alice",
+      effectDef: {
+        kind: "set-state",
+        path: "player.property.life",
+        value: { delta: -7 },
+        target: { kind: "all-other" },
+      },
+      actionInputs: {},
+    });
+
+    expect(life(session, "bob")).toBe(bobBefore - 7);
+    expect(life(session, "alice")).toBe(27); // healed exactly 7
+  });
+
+  it("proportional lifesteal via { expr }: trigger.* is available to compiled expressions", async () => {
+    const session = makeSession((raw) =>
+      setPassiveValue(raw, "lifesteal", {
+        delta: { expr: "0 - trigger.delta" },
+      }),
+    );
+    placeOnField(session, "bloodHunter", "alice");
+    session.state.players["alice"].properties["life"] = 20;
+
+    await executeSetState(session, {
+      actorId: "alice",
+      effectDef: {
+        kind: "set-state",
+        path: "player.property.life",
+        value: { delta: -4 },
+        target: { kind: "all-other" },
+      },
+      actionInputs: {},
+    });
+
+    expect(life(session, "alice")).toBe(24);
+  });
+
+  it("trigger.delta reflects the post-clamp write, not the requested delta", async () => {
+    const session = makeSession((raw) =>
+      setPassiveValue(raw, "lifesteal", {
+        delta: { var: "trigger.delta", negate: true },
+      }),
+    );
+    placeOnField(session, "bloodHunter", "alice");
+    session.state.players["alice"].properties["life"] = 10;
+    session.state.players["bob"].properties["life"] = 3;
+
+    // life has min 0 — a -10 hit on 3 life only removes 3
+    await executeSetState(session, {
+      actorId: "alice",
+      effectDef: {
+        kind: "set-state",
+        path: "player.property.life",
+        value: { delta: -10 },
+        target: { kind: "all-other" },
+      },
+      actionInputs: {},
+    });
+
+    expect(life(session, "bob")).toBe(0);
+    expect(life(session, "alice")).toBe(13); // healed 3, not 10
+  });
+
+  it("thorns reading source.property.power: attacker takes damage equal to its own power", async () => {
+    const session = makeSession((raw) =>
+      setPassiveValue(raw, "thorns", {
+        delta: { var: "source.property.power", negate: true },
+      }),
+    );
+    placeOnField(session, "thornBeast", "bob");
+    placeOnField(session, "swiftFang", "alice"); // power 4
+    const aliceBefore = life(session, "alice");
+
+    await executeUpdate(session, {
+      actorId: "alice",
+      effectDef: {
+        kind: "update",
+        pieces: {
+          player: { param: "defenderOwner" },
+          inventory: "field",
+          select: { id: { param: "defender" } },
+        },
+        property: "defense",
+        value: { delta: -1 },
+        source: { param: "attacker" },
+      },
+      actionInputs: {
+        defenderOwner: "bob",
+        defender: "thornBeast",
+        attacker: "swiftFang",
+      },
+    });
+
+    expect(life(session, "alice")).toBe(aliceBefore - 4);
+  });
+
+  it("thorns reading trigger.delta on a gamepiece write: reflects the defense lost", async () => {
+    const session = makeSession((raw) =>
+      setPassiveValue(raw, "thorns", { delta: { var: "trigger.delta" } }),
+    );
+    placeOnField(session, "thornBeast", "bob");
+    const aliceBefore = life(session, "alice");
+
+    await executeUpdate(session, {
+      actorId: "alice",
+      effectDef: {
+        kind: "update",
+        pieces: {
+          player: { param: "defenderOwner" },
+          inventory: "field",
+          select: { id: { param: "defender" } },
+        },
+        property: "defense",
+        value: { delta: -3 },
+      },
+      actionInputs: { defenderOwner: "bob", defender: "thornBeast" },
+    });
+
+    expect(life(session, "alice")).toBe(aliceBefore - 3);
   });
 });

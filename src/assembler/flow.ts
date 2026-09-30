@@ -34,6 +34,7 @@ import type {
   FlowHooks,
   EffectRef,
   WinConditionDef,
+  GameSession,
 } from "@chaincraft/runtime";
 import { normalizeEffectList } from "./effects.js";
 import { sessionToEvalContext } from "../expressions/eval-bridge.js";
@@ -200,6 +201,30 @@ function assembleFlowNode(
   const nodeId = node.id ?? node.kind;
 
   if (node.kind === "loop") {
+    if (node.count != null && node.endCondition != null) {
+      throw new Error(
+        `flow assembler: loop '${nodeId}' has both 'count' and 'endCondition'; provide only one.`,
+      );
+    }
+    if (node.endCondition === "until-pass") {
+      throw new Error(
+        `flow assembler: loop '${nodeId}' endCondition 'until-pass' is not yet supported.`,
+      );
+    }
+    const checkAfter = node.checkAfter ?? "iteration";
+    if (node.finalRound && checkAfter !== "turn") {
+      throw new Error(
+        `flow assembler: loop '${nodeId}' finalRound requires checkAfter: turn.`,
+      );
+    }
+    const endExpr =
+      typeof node.endCondition === "string" ? node.endCondition : undefined;
+    if (endExpr && checkAfter === "iteration" && /\bactor\./.test(endExpr)) {
+      throw new Error(
+        `flow assembler: loop '${nodeId}' endCondition references 'actor', which is only bound with checkAfter: turn.`,
+      );
+    }
+    const endPred = endExpr ? compilePredicate(endExpr) : undefined;
     const result: LoopFlowNode = {
       kind: "loop",
       id: nodeId,
@@ -212,6 +237,11 @@ function assembleFlowNode(
       ...(node.writeIterationTo != null && {
         writeIterationTo: node.writeIterationTo,
       }),
+      ...(endPred && {
+        endCondition: (session: GameSession, actorId?: string) =>
+          endPred(sessionToEvalContext(session, actorId)),
+      }),
+      ...(node.checkAfter != null && { checkAfter: node.checkAfter }),
     };
     const hooks = assembleFlowHooks(node.hooks, nodeId, effectDefs);
     if (hooks) result.hooks = hooks;

@@ -374,6 +374,72 @@ describe('assembleFlow — High Card', () => {
   });
 });
 
+describe('assembleFlow — loop endCondition', () => {
+  /** High Card with the tricks loop's `count` replaced by `patch`. */
+  function highCardWithLoop(patch: Record<string, unknown>) {
+    const spec = loadHighCardSpec();
+    const root = spec.flow!.root as unknown as { children: Record<string, unknown>[] };
+    const { count: _count, ...loop } = root.children[0];
+    root.children[0] = { ...loop, ...patch };
+    return spec;
+  }
+
+  function assembleLoop(patch: Record<string, unknown>) {
+    const spec = highCardWithLoop(patch);
+    const loop = assembleFlow(spec, 'high-card', {}).children[0];
+    if (loop.kind !== 'loop') throw new Error('expected loop');
+    const session = assembleSession(spec, 'high-card').createSession('g1', ['alice', 'bob']);
+    return { loop, session };
+  }
+
+  it('compiles an iteration-checked endCondition into a predicate over live session state', () => {
+    const { loop, session } = assembleLoop({
+      endCondition: 'any(player.property.score >= 2)',
+    });
+    expect(loop.count).toBeUndefined();
+    expect(loop.checkAfter).toBeUndefined();
+    expect(loop.endCondition!(session)).toBe(false);
+    session.state.players.bob.properties.score = 2;
+    expect(loop.endCondition!(session)).toBe(true);
+  });
+
+  it('checkAfter: turn passes through and binds the finishing player as actor', () => {
+    const { loop, session } = assembleLoop({
+      endCondition: 'actor.property.score >= 2',
+      checkAfter: 'turn',
+      finalRound: true,
+    });
+    expect(loop.checkAfter).toBe('turn');
+    expect(loop.finalRound).toBe(true);
+    session.state.players.bob.properties.score = 2;
+    expect(loop.endCondition!(session, 'alice')).toBe(false);
+    expect(loop.endCondition!(session, 'bob')).toBe(true);
+  });
+
+  it('rejects count together with endCondition', () => {
+    const spec = loadHighCardSpec();
+    const root = spec.flow!.root as unknown as { children: Record<string, unknown>[] };
+    root.children[0] = { ...root.children[0], endCondition: 'true' };
+    expect(() => assembleFlow(spec, 'high-card', {})).toThrow("both 'count' and 'endCondition'");
+  });
+
+  it('rejects until-pass (not yet supported)', () => {
+    expect(() => assembleLoop({ endCondition: 'until-pass' })).toThrow("'until-pass' is not yet supported");
+  });
+
+  it('rejects actor paths in an iteration-checked endCondition', () => {
+    expect(() => assembleLoop({ endCondition: 'actor.property.score >= 2' })).toThrow(
+      'only bound with checkAfter: turn',
+    );
+  });
+
+  it('rejects finalRound without checkAfter: turn', () => {
+    expect(() =>
+      assembleLoop({ endCondition: 'any(player.property.score >= 2)', finalRound: true }),
+    ).toThrow('finalRound requires checkAfter: turn');
+  });
+});
+
 describe('assembleModule — High Card', () => {
   const spec = loadHighCardSpec();
   const mod = assembleModule(spec, 'high-card');

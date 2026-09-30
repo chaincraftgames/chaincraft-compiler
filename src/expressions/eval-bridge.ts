@@ -16,6 +16,7 @@ export function sessionToEvalContext(
   params?: Record<string, unknown>,
   sourcePieceId?: string,
   targetPieceId?: string,
+  trigger?: Record<string, unknown>,
 ): EvalContext {
   const players: EvalContext["players"] = {};
   for (const pid of session.players) {
@@ -41,6 +42,7 @@ export function sessionToEvalContext(
     params,
     sourcePieceId,
     targetPieceId,
+    trigger,
   };
 }
 

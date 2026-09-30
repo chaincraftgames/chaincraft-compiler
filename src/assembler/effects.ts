@@ -186,6 +186,7 @@ function walkValue(value: unknown): unknown {
           ctx.actionInputs,
           ctx.sourcePieceId,
           ctx.targetPieceId,
+          ctx.trigger as Record<string, unknown> | undefined,
         ),
       );
     return { expr: compiled };
